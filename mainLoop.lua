@@ -1,22 +1,17 @@
 -------------------------------------------------------------------------------------------
--------------------------------------------------------------------------------------------
 -- WU WeatherData - Fetch weather data from wunderground.com. Multilanguage support!
 -- Original Code by Jonny Larsson 2015 http://forum.fibaro.com/index.php?/topic/19810-wu-weatherdata-version-202-2015-10-25/
--- forked by Sébastien Jauquet 11/2015
--- Inspired by GEA(steven), stevenvd, Krikroff and many other users.
+-- Forked by Sébastien Jauquet 11/2015 http://www.domotique-fibaro.fr/index.php/topic/6446-yams-wu-yet-another-meteo-station-wunderground-version/
+-- Inspired by GEA(steven), stevenvd, Lazer, Krikroff and many other users.
 -- Source - forum.fibaro.com, domotique-fibaro.fr and worldwideweb
---
--- Version 3.8
---
--- PWS = Personal Weather Station
--- LOCID = Public station
--- 
+
 -- 2014-03-22 - Permissions granted from Krikroff 
 -- 2014-03-23 - Added rain and forecast, Added FR language. 
 -- 2014-03-23 - Language variable changed to get the translation from wunderground.com in forcast
 -- 2014-03-24 - Added PL language
 -- 2014-03-24 - Select between PWS or LOCID to download weather data
 -- 2015-10-23 - New source code.
+-- 2015-11-16 - Permissions granted from Jonny Larsson
 
 -- 2015-11-13 - V3.0 - Fork Code by Sebastien Jauquet (3 days forecast, rain in mm)
 -- 2015-11-14 - V3.1 - Compatibilty with GEA, French translation
@@ -28,34 +23,44 @@
 -- 2015-11-18 - 		Added autmatic creation of Global Variables if not existing
 -- 2015-11-19 - V3.7 - Modify schedule management and CleanUp code
 -- 2015-11-22 - V3.8 - Finalise mobile version and bug fixing
+-- 2015-11-23 - V3.9 - Added multiple notification options (Lazer way)
 -- Look for nearest station here: http://www.wunderground.com
 
 -------------------------------------------------------------------------------------------
 -- MAIN CODE --
 -------------------------------------------------------------------------------------------
-WU = {}
+WU = {};
 -- WU settings
-WU.APIkey = "xxxxxxxxxxxxxxx"		-- Put your WU api key here
-WU.PWS = "IGVLEBOR5"				-- The PWS location to get data from (Personal Weather Station)
-WU.LOCID = "SWXX0076"				-- The location ID to get data from (City location)
-WU.station = "PWS"				-- Choose your prefered method to retrieve from: PWS or LOCID
+	WU.APIkey = "XXXXXXXXXxxxxxXX";		                -- Put your WU api key here
+	WU.PWS = "IGVLEBOR5";			                -- The PWS location to get data from (Personal Weather Station)
+	WU.LOCID = "SWXX0076";				        -- The location ID to get data from (City location)
+	WU.station = "PWS";					-- Choose your prefered method to retrieve from: PWS or LOCID
+-- notifications
+	WU.notifications = true;				-- send notifications
+	WU.push_fcst1 = "11:30";				-- time when forecast for today will be pushed to smartphone
+	WU.push_fcst2 = "18:15";				-- time when forecast for tonight will be pushed to smartphone
+	WU.notificationTypes = {"push", "email"};               -- notification types {"push", "email", "sms"}
+	WU.smartphoneID = {1347};				-- Smartphone Id to send push to. {id1, id2, id3}
+	WU.userID = {2};					-- User Id to send email to. {id1, id2, id3}
+	WU.sms = {
+		["VD_ID"] = 0,					-- Virtual Device ID
+		["VD_Button"] = "1",				-- Virtual Device Button
+		["VG_Name"] = "SMS"};				-- Global Variable Name
+	WU.debug_messages = false;				-- Diplay debug for notifications
 -- Other settings
-WU.translation = {true}
-WU.language = "FR";					-- EN, FR, SW, PL (default is en)
-WU.smartphoneID = 1347				-- your smartphone ID
-WU.sendPush = true					-- send forecast as push message
-WU.push_fcst1 = "07:00"				-- time when forecast for today will be pushed to smartphone
-WU.push_fcst2 = "18:15"				-- time when forecast for tonight will be pushed to smartphone
-WU.GEA = true						-- subst % with %% when storing in the VG's (because gea bug with % in push messages)
-WU.CreateVG = true					-- will atomaticaly create global variables at first run if = true
-updateEvery = 30					-- get data every xx minutes
-WU.startTime = os.time()
-WU.scheduler = os.time()+60*updateEvery
-WU.currentDate = os.date("*t");
-WU.now = os.date("%H:%M");
-DoNotRecheckBefore = os.time()
-WU.selfId = fibaro:getSelfId()
-WU.version = "3.8"
+	WU.translation = {true};
+	WU.language = "FR";					-- EN, FR, SW, PL (default is en)
+	WU.GEA = true;						-- subst % with %% when storing in the VG's (because gea bug with % in push messages)
+	WU.CreateVG = true;					-- will atomaticaly create global variables at first run if = true
+	WU.updateEvery = 30;					-- get data every xx minutes
+-- Do not change
+	WU.startTime = os.time();
+	WU.scheduler = os.time()+60*WU.updateEvery;
+	WU.currentDate = os.date("*t");
+	WU.now = os.date("%H:%M");
+	WU.DoNotRecheckBefore = os.time();
+	WU.selfId = fibaro:getSelfId();
+	WU.version = "3.9";
 
 WU.translation["EN"] = {
 	Push_forecast = "Push forecast",
@@ -68,6 +73,7 @@ WU.translation["EN"] = {
 	Wind = "Wind",
 	Rain = "Rain",
 	Forecast = "Forecast",
+	EmailSubject = "Meteo of this",
 	Station = "Station",
 	Fetched = "Fetched",
 	Data_processed = "Data processed",
@@ -75,7 +81,7 @@ WU.translation["EN"] = {
 	No_data_fetched = "No data fetched",
 	NO_STATIONID_FOUND = "No stationID found",
 	NO_DATA_FOUND = "No data found"
-	}
+	};
 WU.translation["FR"] = {
 	Push_forecast = "Push des prévisions",
 	Exiting_loop_slider = "Sortie de boucle (Slider Changé)",
@@ -87,14 +93,15 @@ WU.translation["FR"] = {
 	Wind = "Vent",
 	Rain = "Pluie",
 	Forecast = "",
+	EmailSubject = "Météo de ce",
 	Station = "Station",
-	Fetched = "Données Reçues",
+	Fetched = "Données reçues",
 	Data_processed = "Données mises à  jour",
 	Update_interval = "Prochaine Mise à  jour prévue dans (min)",
 	No_data_fetched = "Pas de données reçues !!",
 	NO_STATIONID_FOUND = "StationID non trouvée !!",
 	NO_DATA_FOUND = "Pas de données disponibles !!"
-	}
+	};
 WU.translation["SW"] = {
 	Push_forecast = "Push forecast",
 	Exiting_loop_slider = "Exiting loop earlier (Slider Changed)",
@@ -106,6 +113,7 @@ WU.translation["SW"] = {
 	Wind = "Vind",
 	Rain = "Regn",
 	Forecast = "Prognos",
+	EmailSubject = "Meteo of this",
 	Station = "Station",
 	Fetched = "Hà¤mtat",
 	Data_processed = "All data processat",
@@ -113,7 +121,7 @@ WU.translation["SW"] = {
 	No_data_fetched = "Inget data hà¤mtat",
 	NO_STATIONID_FOUND = "StationID ej funnet",
 	NO_DATA_FOUND = "Ingen data hos WU"
-	}
+	};
 WU.translation["PL"] = {
 	Push_forecast = "Push prognoza",
 	Exiting_loop_slider = "Exiting loop earlier (Slider Changed)",
@@ -125,6 +133,7 @@ WU.translation["PL"] = {
 	Wind = "Wiatr",
 	Rain = "Rain",
 	Forecast = "Forecast",
+	EmailSubject = "Meteo of this",
 	Station = "Station",
 	Fetched = "Fetched",
 	Data_processed = "Data processed",
@@ -132,7 +141,7 @@ WU.translation["PL"] = {
 	Update_interval = "Next update will be in (min)",
 	NO_STATIONID_FOUND = "No stationID found",
 	NO_DATA_FOUND = "No data found"
-	}
+	};
 WU.translation["NL"] = {
 	Push_forecast = "Push verwachting",
 	Exiting_loop_slider = "Exiting loop earlier (Slider Changed)",
@@ -144,6 +153,7 @@ WU.translation["NL"] = {
 	Wind = "Wind",
 	Rain = "Regen",
 	Forecast = "Verwachting",
+	EmailSubject = "Meteo of this",
 	Station = "Weerstation",
 	Fetched = "Ontvangen",
 	Data_processed = "Gegevens verwerkt",
@@ -151,7 +161,7 @@ WU.translation["NL"] = {
 	No_data_fetched = "Geen gegevens ontvangen",
 	NO_STATIONID_FOUND = "Geen stationID gevonden",
 	NO_DATA_FOUND = "Geen gegevens gevonden"
-	}
+	};
 WU.translation["DE"] = {
 	Push_forecast = "Push vorhersage",
 	Exiting_loop_slider = "Exiting loop earlier (Slider Changed)",
@@ -163,6 +173,7 @@ WU.translation["DE"] = {
 	Wind = "Wind",
 	Rain = "Regen",
 	Forecast = "Vorhersage",
+	EmailSubject = "Meteo of this",
 	Station = "Station",
 	Fetched = "Abgerufen",
 	Data_processed = "Daten verarbeitet",
@@ -170,169 +181,218 @@ WU.translation["DE"] = {
 	Update_interval = "Das nà¤chste Update in (min)",
 	NO_STATIONID_FOUND = "Keine stationID gefunden",
 	NO_DATA_FOUND = "Keine Daten gefunden"
-	}
+	};
 
-Debug = function ( color, message )
-	fibaro:debug(string.format('<%s style="color:%s;">%s</%s>', "span", color, message, "span"));
+Debug = function (color, message)
+	if color and color ~= "" then
+		fibaro:debug('<span style="color:'..color..';">'..message..'</span>');
+	else
+		fibaro:debug(message);
+	end
 end
-WU.createGlobalIfNotExists = function (varName, defaultValue)
+WU.notification = function(message, subject, param)
+	local message = message or "<vide>";
+	if WU.debug_messages then
+		Debug("yellow", "Notification : "..message);
+	end
+	if param then
+		for _, notif in ipairs(param) do
+			if WU.debug_messages then
+				Debug("grey", notif);
+			end
+			-- Envoi Push
+			if notif == "push" and WU.smartphoneID then
+				for _, id in ipairs(WU.smartphoneID) do
+					if WU.debug_messages then
+						Debug("grey", "Send Push smartphone ID : "..id);
+					end
+					fibaro:call(id, "sendPush", message);
+				end
+			-- Envoi Email
+			elseif notif == "email" and WU.userID then
+				for _, id in ipairs(WU.userID) do
+					if WU.debug_messages then
+						Debug("grey", "Send Email user ID : "..id);
+					end
+					fibaro:call(id, "sendEmail", subject, message);
+				end
+			-- Envoi SMS
+			elseif notif == "sms" and WU.sms then
+				if WU.debug_messages then
+					Debug("grey", "Send SMS : VD_ID="..(WU.sms["VD_ID"] or 0).." VD_Button="..(WU.sms["VD_Button"] or "0").." VG_Name="..(WU.sms["VG_Name"] or ""));
+				end
+				fibaro:setGlobal(WU.sms["VG_Name"], message);
+				if WU.sms["VD_ID"] and tonumber(WU.sms["VD_ID"])>0 and WU.sms["VD_Button"] and tonumber(WU.sms["VD_Button"])>0 then
+					fibaro:call(WU.sms["VD_ID"], "pressButton", WU.sms["VD_Button"]);
+				end
+			end
+		end
+	else
+		Debug("orange", "Warning : no notification options given");
+	end
+end
+WU.createGlobalIfNotExists = function(varName, defaultValue)
 	if (fibaro:getGlobal(varName) == "") then
-		Debug("red", "Global Var: "..varName.." HAS BEEN CREATED")
-		newVar = {}
-		newVar.name = varName
-		HC2 = Net.FHttp("127.0.0.1", 11111)
-		HC2:POST("/api/globalVariables", json.encode(newVar))
+		Debug("red", "Global Var: "..varName.." HAS BEEN CREATED");
+		newVar = {};
+		newVar.name = varName;
+		HC2 = Net.FHttp("127.0.0.1", 11111);
+		HC2:POST("/api/globalVariables", json.encode(newVar));
 	end
 end
 WU.substPercent = function(doublePercentSymbol)
 	if 	WU.GEA then
-		doublePercentSymbol = string.gsub(doublePercentSymbol, "%%.", "%%%%")
+		doublePercentSymbol = string.gsub(doublePercentSymbol, "%%.", "%%%%");
 	end
-	return doublePercentSymbol
+	return doublePercentSymbol;
 end
 WU.cleanJson = function(jsontocheck,returnIfTrue)
 	if jsontocheck == "-999.00" or jsontocheck == "--" or jsontocheck == json.null then
-	jsontocheck = returnIfTrue
+	jsontocheck = returnIfTrue;
 	end
 		local ok = pcall(function()
-			testConcatenate = "Test Concatenate: " .. jsontocheck -- test for non concatenate value
+			testConcatenate = "Test Concatenate: " .. jsontocheck; -- test for non concatenate value
 			end )
 		if (not ok) then
-			decode_error = true
-			Debug( "red", "decode raised an error")
-			fibaro:call(WU.smartphoneID , "sendPush", "decode error in WU Meteo")
+			decode_error = true;
+			Debug( "red", "decode raised an error");
+			if WU.notifications then
+				WU.notification("decode error in WU Meteo","Got a Decode Error in WU Meteo.", WU.notificationTypes);
+			end
 		end
-	return jsontocheck
+	return jsontocheck;
 end
 WU.HtmlColor = function(StringToColor,color)
 	if MobileDisplay == false then 
-	StringToColor= "<font color=\""..color.."\"> "..StringToColor.."</font>"
+	StringToColor= "<font color=\""..color.."\"> "..StringToColor.."</font>";
 	end
-	return StringToColor
+	return StringToColor;
 end
 WU.IconOrText = function(icon,txt)
-	if MobileDisplay == false then 
-	IconOrText = "<img src="..icon.."\>"
+	if MobileDisplay == false then
+	IconOrText = "<img src="..icon.."\>";
 	else
-	IconOrText = txt
+	IconOrText = txt;
 	end
-	return IconOrText
+	return IconOrText;
 end
 WU.HtmlOrText = function(_html,txt)
 	if MobileDisplay == false then 
-	HtmlOrText = _html
+	HtmlOrText = _html;
 	else
-	HtmlOrText = txt
+	HtmlOrText = txt;
 	end
-	return HtmlOrText
+	return HtmlOrText;
 end
 WU.getSlider = function()
-	ValeurSliderfunct = fibaro:getValue(WU.selfId , "ui.WebOrMobile.value")
-	return tonumber(ValeurSliderfunct)
+	ValeurSliderfunct = fibaro:getValue(WU.selfId , "ui.WebOrMobile.value");
+	return tonumber(ValeurSliderfunct);
 end
 WU.setSlider = function(position)
-	fibaro:call(WU.selfId , "setProperty", "ui.WebOrMobile.value", position)
-	return WU.getSlider()
+	fibaro:call(WU.selfId , "setProperty", "ui.WebOrMobile.value", position);
+	return WU.getSlider();
 end
 WU.checkMobileOrWeb = function()
-	ValeurSliderSleep = WU.getSlider() -- check slider value at first run
+	ValeurSliderSleep = WU.getSlider(); -- check slider value at first run
 	if ValeurSliderSleep <= 50 then 
 		if ValeurSliderSleep == 1 then
-		MobileDisplay = false
+		MobileDisplay = false;
 		else
-		MobileDisplay = false
-		WU.runDirect = 1
-		sleepAndcheckslider = 20*updateEvery -- exit wait loop
+		MobileDisplay = false;
+		WU.runDirect = 1;
+		sleepAndcheckslider = 20*WU.updateEvery; -- exit wait loop
 		Debug("orange", WU.translation[WU.language]["Exiting_loop_slider"]);
 		end
-		WU.setSlider(1) -- désactive le run immediat lors du prochain test
+		WU.setSlider(1); -- désactive le run immediat lors du prochain test
 	end
 	if ValeurSliderSleep >= 50 then
 		if ValeurSliderSleep == 98 then
 		else
-		MobileDisplay = true		
-		WU.runDirect = 1
-		sleepAndcheckslider = 20*updateEvery -- exit wait loop
+		MobileDisplay = true;
+		WU.runDirect = 1;
+		sleepAndcheckslider = 20*WU.updateEvery; -- exit wait loop
 		Debug("orange", WU.translation[WU.language]["Exiting_loop_slider"]);
 		end
-		WU.setSlider(98) -- désactive le run immediat lors du prochain test
+		WU.setSlider(98); -- désactive le run immediat lors du prochain test
 	end 
-  return WU.getSlider()
+  return WU.getSlider();
 end
 WU.fetchWU = function()
-decode_error = false
-WU.checkMobileOrWeb()
+decode_error = false;
+WU.checkMobileOrWeb();
 local WGROUND = Net.FHttp("api.wunderground.com",80);
 local response ,status, err = WGROUND:GET("/api/"..WU.APIkey.."/conditions/forecast/lang:"..WU.language.."/q/"..WU.station..":"..locationID..".json");
 if (tonumber(status) == 200 and tonumber(err)==0) then
-	Debug( "cyan", WU.translation[WU.language]["Fetched"])
+	Debug( "cyan", WU.translation[WU.language]["Fetched"]);
 	if (response ~= nil) then
-		WU.now = os.date("%H:%M")
+		WU.now = os.date("%H:%M");
 		jsonTable = json.decode(response);
 		if jsonTable.response.error ~= nil then
-			Debug( "red", WU.translation[WU.language]["NO_DATA_FOUND"])
-			fibaro:sleep(15*1000)
+			Debug( "red", WU.translation[WU.language]["NO_DATA_FOUND"]);
+			fibaro:sleep(15*1000);
+			Debug( "yellow", WU.translation[WU.language]["NO_DATA_FOUND"]);
+			fibaro:sleep(15*1000);
 		return
 		end
 		stationID = jsonTable.current_observation.station_id;
-		humidity = jsonTable.current_observation.relative_humidity
-		temperature = jsonTable.current_observation.temp_c
-		pression = jsonTable.current_observation.pressure_mb
-		wind = jsonTable.current_observation.wind_kph
-		rain = WU.cleanJson(jsonTable.current_observation.precip_today_metric,"0")
-		weathericon = jsonTable.current_observation.icon_url
+		humidity = jsonTable.current_observation.relative_humidity;
+		temperature = jsonTable.current_observation.temp_c;
+		pression = jsonTable.current_observation.pressure_mb;
+		wind = jsonTable.current_observation.wind_kph;
+		rain = WU.cleanJson(jsonTable.current_observation.precip_today_metric,"0");
+		weathericon = jsonTable.current_observation.icon_url;
 		-- Day meteo
-		fcstday1 = jsonTable.forecast.txt_forecast.forecastday[1].title
-			fcst1 = jsonTable.forecast.txt_forecast.forecastday[1].fcttext_metric
-			fcst1icon = jsonTable.forecast.txt_forecast.forecastday[1].icon_url
+		fcstday1 = jsonTable.forecast.txt_forecast.forecastday[1].title;
+			fcst1 = jsonTable.forecast.txt_forecast.forecastday[1].fcttext_metric;
+			fcst1icon = jsonTable.forecast.txt_forecast.forecastday[1].icon_url;
 		-- Evening Meteo
-		fcstday2 = jsonTable.forecast.txt_forecast.forecastday[2].title
-			fcst2 = jsonTable.forecast.txt_forecast.forecastday[2].fcttext_metric
-			fcst2icon = jsonTable.forecast.txt_forecast.forecastday[2].icon_url
+		fcstday2 = jsonTable.forecast.txt_forecast.forecastday[2].title;
+			fcst2 = jsonTable.forecast.txt_forecast.forecastday[2].fcttext_metric;
+			fcst2icon = jsonTable.forecast.txt_forecast.forecastday[2].icon_url;
 		-- Tomorrow Meteo
-		fcstday3 = jsonTable.forecast.txt_forecast.forecastday[3].title 
-			fcst3 = jsonTable.forecast.txt_forecast.forecastday[3].fcttext_metric
-			fcst3icon = jsonTable.forecast.txt_forecast.forecastday[3].icon_url
+		fcstday3 = jsonTable.forecast.txt_forecast.forecastday[3].title;
+			fcst3 = jsonTable.forecast.txt_forecast.forecastday[3].fcttext_metric;
+			fcst3icon = jsonTable.forecast.txt_forecast.forecastday[3].icon_url;
 		 -- In 2 days
-		fcstday5 = jsonTable.forecast.txt_forecast.forecastday[5].title
-			fcst5 = jsonTable.forecast.txt_forecast.forecastday[5].fcttext_metric
-			fcst5icon = jsonTable.forecast.txt_forecast.forecastday[5].icon_url
-			
-		-- SimpleForecast Today	
-			fcst1SmallTxt = jsonTable.forecast.simpleforecast.forecastday[1].conditions
-			fcst1Tmax = jsonTable.forecast.simpleforecast.forecastday[1].high.celsius
-			fcst1Tmin = jsonTable.forecast.simpleforecast.forecastday[1].low.celsius
-			fcst1avewind =jsonTable.forecast.simpleforecast.forecastday[1].avewind.kph
-			fcst1avewinddir =jsonTable.forecast.simpleforecast.forecastday[1].avewind.dir
-			fcst1mm = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[1].qpf_day.mm,"0")
-		-- SimpleForecast Tomorrow	
-			fcst2SmallTxt = jsonTable.forecast.simpleforecast.forecastday[2].conditions
-			fcst2Tmax = jsonTable.forecast.simpleforecast.forecastday[2].high.celsius
-			fcst2Tmin = jsonTable.forecast.simpleforecast.forecastday[2].low.celsius
-			fcst2avewind =jsonTable.forecast.simpleforecast.forecastday[2].avewind.kph
-			fcst2avewinddir =jsonTable.forecast.simpleforecast.forecastday[2].avewind.dir
-			fcst2mm = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[2].qpf_night.mm,"0")
+		fcstday5 = jsonTable.forecast.txt_forecast.forecastday[5].title;
+			fcst5 = jsonTable.forecast.txt_forecast.forecastday[5].fcttext_metric;
+			fcst5icon = jsonTable.forecast.txt_forecast.forecastday[5].icon_url;
+
+			-- SimpleForecast Today
+			fcst1SmallTxt = jsonTable.forecast.simpleforecast.forecastday[1].conditions;
+			fcst1Tmax = jsonTable.forecast.simpleforecast.forecastday[1].high.celsius;
+			fcst1Tmin = jsonTable.forecast.simpleforecast.forecastday[1].low.celsius;
+			fcst1avewind =jsonTable.forecast.simpleforecast.forecastday[1].avewind.kph;
+			fcst1avewinddir =jsonTable.forecast.simpleforecast.forecastday[1].avewind.dir;
+			fcst1mm = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[1].qpf_day.mm,"0");
+		-- SimpleForecast Tomorrow
+			fcst2SmallTxt = jsonTable.forecast.simpleforecast.forecastday[2].conditions;
+			fcst2Tmax = jsonTable.forecast.simpleforecast.forecastday[2].high.celsius;
+			fcst2Tmin = jsonTable.forecast.simpleforecast.forecastday[2].low.celsius;
+			fcst2avewind =jsonTable.forecast.simpleforecast.forecastday[2].avewind.kph;
+			fcst2avewinddir =jsonTable.forecast.simpleforecast.forecastday[2].avewind.dir;
+			fcst2mm = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[2].qpf_night.mm,"0");
 		-- In 2 days
-			fcst3SmallTxt = jsonTable.forecast.simpleforecast.forecastday[3].conditions
-			fcst3Tmax = jsonTable.forecast.simpleforecast.forecastday[3].high.celsius
-			fcst3Tmin = jsonTable.forecast.simpleforecast.forecastday[3].low.celsius
-			fcst3avewind =jsonTable.forecast.simpleforecast.forecastday[3].avewind.kph
-			fcst3avewinddir =jsonTable.forecast.simpleforecast.forecastday[3].avewind.dir
-			fcst3mm = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[3].qpf_allday.mm,"0")
+			fcst3SmallTxt = jsonTable.forecast.simpleforecast.forecastday[3].conditions;
+			fcst3Tmax = jsonTable.forecast.simpleforecast.forecastday[3].high.celsius;
+			fcst3Tmin = jsonTable.forecast.simpleforecast.forecastday[3].low.celsius;
+			fcst3avewind =jsonTable.forecast.simpleforecast.forecastday[3].avewind.kph;
+			fcst3avewinddir =jsonTable.forecast.simpleforecast.forecastday[3].avewind.dir;
+			fcst3mm = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[3].qpf_allday.mm,"0");
 
 
 		if (stationID ~= nil) and decode_error == false  then
 			fibaro:call(WU.selfId , "setProperty", "ui.lblStation.value", locationID);
 			if temperature < 5 then
-			cTemperature = WU.HtmlColor(temperature,"00bfff")
+			cTemperature = WU.HtmlColor(temperature,"00bfff");
 			elseif temperature > 18 then
-			cTemperature = WU.HtmlColor(temperature,"ff4500")
+			cTemperature = WU.HtmlColor(temperature,"ff4500");
 			else
-			cTemperature = WU.HtmlColor(temperature,"ffd700")
+			cTemperature = WU.HtmlColor(temperature,"ffd700");
 			end
 			fibaro:call(WU.selfId , "setProperty", "ui.lblTempHum.value", WU.translation[WU.language]["Temperature"]..": "..cTemperature.." °C - "..WU.translation[WU.language]["Humidity"]..": "..humidity);
 			fibaro:call(WU.selfId , "setProperty", "ui.lblWindRain.value", WU.translation[WU.language]["Wind"]..": "..wind.." km/h - "..WU.translation[WU.language]["Rain"]..": "..rain.." mm");
-			if (WU.now >= "00:00" and WU.now <= "15:59") then -- donne meteo du jour entre 00:00 (ou 3h) et 15:59. permet de garder la météo du soir jusqu'a 3h du matin, sinon change à  minuit
+			if (WU.now >= "03:00" and WU.now <= "15:59") then -- donne meteo du jour entre 00:00 (ou 3h) et 15:59. permet de garder la météo du soir jusqu'a 3h du matin, sinon change à  minuit
 			fibaro:call(WU.selfId , "setProperty", "ui.lblFcst.value", WU.HtmlOrText(
 				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0").." "..WU.HtmlColor(fcstday1,"ff4500")..": "..WU.HtmlColor(fcst1.." ("..fcst1mm.." mm)","b0c4de"),
 				"["..fcst1Tmax.."° "..fcst1Tmin.."°] | "..fcst1mm.."mm | "..fcst1avewind.."Km/h ("..fcst1avewinddir..")"));
@@ -345,67 +405,67 @@ if (tonumber(status) == 200 and tonumber(err)==0) then
 			fibaro:call(WU.selfId , "setProperty", "ui.lblIcon.value",WU.IconOrText(fcst2icon,fcstday2..": "..fcst1SmallTxt));
 			fibaro:setGlobal("Meteo_Day", WU.substPercent(WU.translation[WU.language]["Forecast"].." "..fcstday2..": ".." "..fcst2.." ("..fcst1mm.." mm)") );
 			end
-			-- Meteo of Tomorrow  
+			-- Meteo of Tomorrow
 			fibaro:call(WU.selfId , "setProperty", "ui.lblFcstTomorrow.value", WU.HtmlOrText(
 				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0").." "..WU.HtmlColor(fcstday3,"ff4500")..": "..WU.HtmlColor(fcst3.." ("..fcst2mm.." mm)","b0c4de"),
 				"["..fcst2Tmax.."° "..fcst2Tmin.."°] | "..fcst2mm.."mm | "..fcst2avewind.."Km/h ("..fcst2avewinddir..")"));
 			fibaro:call(WU.selfId , "setProperty", "ui.lblIconTomorrow.value",WU.IconOrText(fcst3icon,fcstday3..": "..fcst2SmallTxt));
 			fibaro:setGlobal("Meteo_Tomorrow", WU.substPercent(WU.translation[WU.language]["Forecast"].." "..fcstday3..": ".." "..fcst3.." ("..fcst2mm.." mm)") );
-			-- Meteo in 2 Days 
+			-- Meteo in 2 Days
 			fibaro:call(WU.selfId , "setProperty", "ui.lblFcst2Days.value", WU.HtmlOrText(
 				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0").." "..WU.HtmlColor(fcstday5,"ff4500")..": "..WU.HtmlColor(fcst5.." ("..fcst3mm.." mm)","b0c4de"),
 				"["..fcst3Tmax.."° "..fcst3Tmin.."°] | "..fcst3mm.."mm | "..fcst3avewind.."Km/h ("..fcst3avewinddir..")"));
 			fibaro:call(WU.selfId , "setProperty", "ui.lblIcon2Days.value",WU.IconOrText(fcst5icon,fcstday5..": "..fcst3SmallTxt));
 			fibaro:setGlobal("Meteo_In_2_Days", WU.substPercent(WU.translation[WU.language]["Forecast"].." "..fcstday5..": ".." "..fcst5.." ("..fcst3mm.." mm)") );
-			if WU.sendPush then
-				if (os.date("%H:%M") == WU.push_fcst1) then --
-					fibaro:call(WU.smartphoneID , "sendPush", fcstday1.." - "..fcst1) -- envoie meteo du matin
+			if WU.notifications then
+				if (os.date("%H:%M") == WU.push_fcst1) then
+					WU.notification(fcstday1.." - "..fcst1.." ("..fcst1mm.." mm)" , WU.translation[WU.language]["EmailSubject"].." "..fcstday1 , WU.notificationTypes); -- Send Morning meteo
 				elseif (os.date("%H:%M") == WU.push_fcst2) then
-					fibaro:call(WU.smartphoneID , "sendPush", fcstday2.." - "..fcst2) -- envoie meteo du soir
+					WU.notification( fcstday2.." - "..fcst2.." ("..fcst2mm.." mm)" , WU.translation[WU.language]["EmailSubject"].." "..fcstday2 , WU.notificationTypes); -- Send evening meteo
 				end
 			end
-			if WU.sendPush then
+			if WU.notifications then
 				fibaro:call(WU.selfId , "setProperty", "ui.lblNotify.value", WU.translation[WU.language]["Push_forecast"].."  = true");
 			else fibaro:call(WU.selfId , "setProperty", "ui.lblNotify.value",WU.translation[WU.language]["Push_forecast"].."  = false");
 			end
-			WU.scheduler = os.time()+updateEvery*60
+			WU.scheduler = os.time()+WU.updateEvery*60;
 			fibaro:call(WU.selfId, "setProperty", "ui.lblUpdate.value", WU.translation[WU.language]["Last_updated"]..": "..os.date("%c"));
-			Debug( "cyan", WU.translation[WU.language]["Data_processed"])
-			Debug( "white", WU.translation[WU.language]["Update_interval"].." "..updateEvery)
+			Debug( "cyan", WU.translation[WU.language]["Data_processed"]);
+			Debug( "white", WU.translation[WU.language]["Update_interval"].." "..WU.updateEvery);
 		else
-		Debug( "red", WU.translation[WU.language]["NO_STATIONID_FOUND"])
+		Debug( "red", WU.translation[WU.language]["NO_STATIONID_FOUND"]);
 		end
 	else
 	fibaro:debug("status:" .. status .. ", errorCode:" .. errorCode);
 	end
 end
-sleepAndcheckslider = 0
-while sleepAndcheckslider <= 20*updateEvery do
-	fibaro:sleep(3000)
-	WU.checkMobileOrWeb()
-	sleepAndcheckslider = sleepAndcheckslider+1
-	if (DoNotRecheckBefore <= os.time()) and ((WU.scheduler == os.time) or (os.date("%H:%M") == WU.push_fcst1) or (os.date("%H:%M") == WU.push_fcst2)) then
+sleepAndcheckslider = 0;
+while sleepAndcheckslider <= 20*WU.updateEvery do
+	fibaro:sleep(3000);
+	WU.checkMobileOrWeb();
+	sleepAndcheckslider = sleepAndcheckslider+1;
+	if (WU.DoNotRecheckBefore <= os.time()) and ((WU.scheduler == os.time) or (os.date("%H:%M") == WU.push_fcst1) or (os.date("%H:%M") == WU.push_fcst2)) then
 		Debug("orange", WU.translation[WU.language]["Exiting_loop_push"]);
-		DoNotRecheckBefore = os.time()+60
-		sleepAndcheckslider = 20*updateEvery
+		WU.DoNotRecheckBefore = os.time()+60;
+		sleepAndcheckslider = 20*WU.updateEvery;
 	end
 end
 end
 
-Debug( "orange", "WU Weather - Original LUA Scripting by Jonny Larsson 2015");
-Debug( "orange", "YAMS WU - Fork by Sébastien Jauquet 11/2015");
+Debug( "orange", "10/2015 - WU Weather - Original LUA Scripting by Jonny Larsson 2015");
+Debug( "orange", "11/2015 - YAMS WU - Fork by Sébastien Jauquet");
 Debug( "orange", "Version: "..WU.version);
 if WU.station == "LOCID" then
-	locationID = WU.LOCID
-elseif 
+	locationID = WU.LOCID;
+elseif
 	WU.station == "PWS" then
-	locationID = WU.PWS	
+	locationID = WU.PWS;
 end
 if WU.CreateVG then
-	WU.createGlobalIfNotExists("Meteo_Day", "")
-	WU.createGlobalIfNotExists("Meteo_Tomorrow", "")
-	WU.createGlobalIfNotExists("Meteo_In_2_Days", "")
+	WU.createGlobalIfNotExists("Meteo_Day", "");
+	WU.createGlobalIfNotExists("Meteo_Tomorrow", "");
+	WU.createGlobalIfNotExists("Meteo_In_2_Days", "");
 end
 while true do 
-	WU.fetchWU()
+	WU.fetchWU();
 end
