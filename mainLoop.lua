@@ -24,6 +24,7 @@
 -- 2015-11-19 - V3.7 - Modify schedule management and CleanUp code
 -- 2015-11-22 - V3.8 - Finalise mobile version and bug fixing
 -- 2015-11-23 - V3.9 - Added multiple notification options (Lazer way)
+-- 2015-11-30 - V4.0 - More precision for rain mm (moring/evening) + added feels like T° + optimized display
 -- Look for nearest station here: http://www.wunderground.com
 
 -------------------------------------------------------------------------------------------
@@ -31,27 +32,27 @@
 -------------------------------------------------------------------------------------------
 WU = {};
 -- WU settings
-	WU.APIkey = "XXXXXXXXXxxxxxXX";		                -- Put your WU api key here
-	WU.PWS = "IGVLEBOR5";			                -- The PWS location to get data from (Personal Weather Station)
-	WU.LOCID = "SWXX0076";				        -- The location ID to get data from (City location)
+	WU.APIkey = "XXXXXXXXXxxxxxXX";		-- Put your WU api key here
+	WU.PWS = "IGVLEBOR5";				-- The PWS location to get data from (Personal Weather Station)
+	WU.LOCID = "SWXX0076";				-- The location ID to get data from (City location)
 	WU.station = "PWS";					-- Choose your prefered method to retrieve from: PWS or LOCID
 -- notifications
 	WU.notifications = true;				-- send notifications
 	WU.push_fcst1 = "11:30";				-- time when forecast for today will be pushed to smartphone
 	WU.push_fcst2 = "18:15";				-- time when forecast for tonight will be pushed to smartphone
-	WU.notificationTypes = {"push", "email"};               -- notification types {"push", "email", "sms"}
+	WU.notificationTypes = {"push", "email"};--notification types {"push", "email", "sms"}
 	WU.smartphoneID = {1347};				-- Smartphone Id to send push to. {id1, id2, id3}
-	WU.userID = {2};					-- User Id to send email to. {id1, id2, id3}
+	WU.userID = {2};						-- User Id to send email to. {id1, id2, id3}
 	WU.sms = {
-		["VD_ID"] = 0,					-- Virtual Device ID
+		["VD_ID"] = 0,						-- Virtual Device ID
 		["VD_Button"] = "1",				-- Virtual Device Button
 		["VG_Name"] = "SMS"};				-- Global Variable Name
 	WU.debug_messages = false;				-- Diplay debug for notifications
 -- Other settings
 	WU.translation = {true};
-	WU.language = "FR";					-- EN, FR, SW, PL (default is en)
-	WU.GEA = true;						-- subst % with %% when storing in the VG's (because gea bug with % in push messages)
-	WU.CreateVG = true;					-- will atomaticaly create global variables at first run if = true
+	WU.language = "FR";						-- EN, FR, SW, PL (default is en)
+	WU.GEA = true;							-- subst % with %% when storing in the VG's (because gea bug with % in push messages)
+	WU.CreateVG = true;						-- will atomaticaly create global variables at first run if = true
 	WU.updateEvery = 30;					-- get data every xx minutes
 -- Do not change
 	WU.startTime = os.time();
@@ -60,14 +61,14 @@ WU = {};
 	WU.now = os.date("%H:%M");
 	WU.DoNotRecheckBefore = os.time();
 	WU.selfId = fibaro:getSelfId();
-	WU.version = "3.9";
+	WU.version = "4.0";
 
 WU.translation["EN"] = {
 	Push_forecast = "Push forecast",
 	Exiting_loop_slider = "Exiting loop earlier (Slider Changed)",
 	Exiting_loop_push = "Exiting loop earlier (For push)",
 	Last_updated = "Last updated",
-	Temperature = "Temperature",
+	Temperature = "T°/Feels Like",
 	Humidity = "Humidity",
 	Pressure = "Pressure",
 	Wind = "Wind",
@@ -87,8 +88,8 @@ WU.translation["FR"] = {
 	Exiting_loop_slider = "Sortie de boucle (Slider Changé)",
 	Exiting_loop_push = "Sortie de boucle (Pour Push)",
 	Last_updated = "Mise à  jour",
-	Temperature = "Actuellement",
-	Humidity = "Hum",
+	Temperature = "T°/Ressentie",
+	Humidity = "Humidité",
 	Pressure = "Pression",
 	Wind = "Vent",
 	Rain = "Pluie",
@@ -107,7 +108,7 @@ WU.translation["SW"] = {
 	Exiting_loop_slider = "Exiting loop earlier (Slider Changed)",
 	Exiting_loop_push = "Exiting loop earlier (For push)",
 	Last_updated = "Last updated",
-	Temperature = "Temperatur",
+	Temperature = "T°/Feels Like",
 	Humidity = "Fuktighet",
 	Pressure = "Barometer",
 	Wind = "Vind",
@@ -127,7 +128,7 @@ WU.translation["PL"] = {
 	Exiting_loop_slider = "Exiting loop earlier (Slider Changed)",
 	Exiting_loop_push = "Exiting loop earlier (For push)",
 	Last_updated = "Last updated",
-	Temperature = "Temperatura",
+	Temperature = "T°/Feels Like",
 	Humidity = "Wilgotnosc",
 	Pressure = "Pressure",
 	Wind = "Wiatr",
@@ -147,7 +148,7 @@ WU.translation["NL"] = {
 	Exiting_loop_slider = "Exiting loop earlier (Slider Changed)",
 	Exiting_loop_push = "Exiting loop earlier (For push)",
 	Last_updated = "Last updated",
-	Temperature = "Temperatuur",
+	Temperature = "T°/Feels Like",
 	Humidity = "Vochtigheid",
 	Pressure = "Druk",
 	Wind = "Wind",
@@ -167,7 +168,7 @@ WU.translation["DE"] = {
 	Exiting_loop_slider = "Exiting loop earlier (Slider Changed)",
 	Exiting_loop_push = "Exiting loop earlier (For push)",
 	Last_updated = "Last updated",
-	Temperature = "Temperatur",
+	Temperature = "T°/Feels Like",
 	Humidity = "Luftfeuchtigkeit",
 	Pressure = "Luftdruck",
 	Wind = "Wind",
@@ -334,6 +335,7 @@ if (tonumber(status) == 200 and tonumber(err)==0) then
 			fibaro:sleep(15*1000);
 		return
 		end
+		-- current observation
 		stationID = jsonTable.current_observation.station_id;
 		humidity = jsonTable.current_observation.relative_humidity;
 		temperature = jsonTable.current_observation.temp_c;
@@ -341,80 +343,88 @@ if (tonumber(status) == 200 and tonumber(err)==0) then
 		wind = jsonTable.current_observation.wind_kph;
 		rain = WU.cleanJson(jsonTable.current_observation.precip_today_metric,"0");
 		weathericon = jsonTable.current_observation.icon_url;
-		-- Day meteo
+		feelslike_c = jsonTable.current_observation.feelslike_c;
+		temperatureWithFeels = temperature.."/"..feelslike_c
+		-- Today meteo
 		fcstday1 = jsonTable.forecast.txt_forecast.forecastday[1].title;
 			fcst1 = jsonTable.forecast.txt_forecast.forecastday[1].fcttext_metric;
 			fcst1icon = jsonTable.forecast.txt_forecast.forecastday[1].icon_url;
-		-- Evening Meteo
+		-- Today Evening Meteo
 		fcstday2 = jsonTable.forecast.txt_forecast.forecastday[2].title;
 			fcst2 = jsonTable.forecast.txt_forecast.forecastday[2].fcttext_metric;
 			fcst2icon = jsonTable.forecast.txt_forecast.forecastday[2].icon_url;
-		-- Tomorrow Meteo
+		-- Tomorrow Morning Meteo
 		fcstday3 = jsonTable.forecast.txt_forecast.forecastday[3].title;
 			fcst3 = jsonTable.forecast.txt_forecast.forecastday[3].fcttext_metric;
 			fcst3icon = jsonTable.forecast.txt_forecast.forecastday[3].icon_url;
-		 -- In 2 days
+		 -- In 2 days Morning Meteo
 		fcstday5 = jsonTable.forecast.txt_forecast.forecastday[5].title;
 			fcst5 = jsonTable.forecast.txt_forecast.forecastday[5].fcttext_metric;
 			fcst5icon = jsonTable.forecast.txt_forecast.forecastday[5].icon_url;
 
-			-- SimpleForecast Today
+			-- SimpleForecast Today Meteo (Complete day)
 			fcst1SmallTxt = jsonTable.forecast.simpleforecast.forecastday[1].conditions;
 			fcst1Tmax = jsonTable.forecast.simpleforecast.forecastday[1].high.celsius;
 			fcst1Tmin = jsonTable.forecast.simpleforecast.forecastday[1].low.celsius;
 			fcst1avewind =jsonTable.forecast.simpleforecast.forecastday[1].avewind.kph;
 			fcst1avewinddir =jsonTable.forecast.simpleforecast.forecastday[1].avewind.dir;
-			fcst1mm = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[1].qpf_day.mm,"0");
-		-- SimpleForecast Tomorrow
+			fcst1mmday = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[1].qpf_day.mm,"0");
+			fcst1mmnight = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[1].qpf_night.mm,"0");
+			fcst1mm = fcst1mmday.."/"..fcst1mmnight
+		-- SimpleForecast Tomorrow Meteo (Complete day)
 			fcst2SmallTxt = jsonTable.forecast.simpleforecast.forecastday[2].conditions;
 			fcst2Tmax = jsonTable.forecast.simpleforecast.forecastday[2].high.celsius;
 			fcst2Tmin = jsonTable.forecast.simpleforecast.forecastday[2].low.celsius;
 			fcst2avewind =jsonTable.forecast.simpleforecast.forecastday[2].avewind.kph;
 			fcst2avewinddir =jsonTable.forecast.simpleforecast.forecastday[2].avewind.dir;
-			fcst2mm = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[2].qpf_night.mm,"0");
-		-- In 2 days
+			fcst2mmday = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[2].qpf_day.mm,"0");
+			fcst2mmnight = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[2].qpf_night.mm,"0");
+			fcst2mm = fcst2mmday.."/"..fcst2mmnight
+		-- In 2 days Meteo (Complete day)
 			fcst3SmallTxt = jsonTable.forecast.simpleforecast.forecastday[3].conditions;
 			fcst3Tmax = jsonTable.forecast.simpleforecast.forecastday[3].high.celsius;
 			fcst3Tmin = jsonTable.forecast.simpleforecast.forecastday[3].low.celsius;
 			fcst3avewind =jsonTable.forecast.simpleforecast.forecastday[3].avewind.kph;
 			fcst3avewinddir =jsonTable.forecast.simpleforecast.forecastday[3].avewind.dir;
-			fcst3mm = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[3].qpf_allday.mm,"0");
+			fcst3mmday = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[3].qpf_day.mm,"0");
+			fcst3mmnight = WU.cleanJson(jsonTable.forecast.simpleforecast.forecastday[3].qpf_night.mm,"0");
+			fcst3mm = fcst3mmday.."/"..fcst3mmnight
 
 
 		if (stationID ~= nil) and decode_error == false  then
 			fibaro:call(WU.selfId , "setProperty", "ui.lblStation.value", locationID);
 			if temperature < 5 then
-			cTemperature = WU.HtmlColor(temperature,"00bfff");
+			cTemperature = WU.HtmlColor(temperatureWithFeels,"00bfff");
 			elseif temperature > 18 then
-			cTemperature = WU.HtmlColor(temperature,"ff4500");
+			cTemperature = WU.HtmlColor(temperatureWithFeels,"ff4500");
 			else
-			cTemperature = WU.HtmlColor(temperature,"ffd700");
+			cTemperature = WU.HtmlColor(temperatureWithFeels,"ffd700");
 			end
-			fibaro:call(WU.selfId , "setProperty", "ui.lblTempHum.value", WU.translation[WU.language]["Temperature"]..": "..cTemperature.." °C - "..WU.translation[WU.language]["Humidity"]..": "..humidity);
+			fibaro:call(WU.selfId , "setProperty", "ui.lblTempHum.value", WU.translation[WU.language]["Temperature"]..": "..cTemperature.."°C | "..humidity.." "..WU.translation[WU.language]["Humidity"]);
 			fibaro:call(WU.selfId , "setProperty", "ui.lblWindRain.value", WU.translation[WU.language]["Wind"]..": "..wind.." km/h - "..WU.translation[WU.language]["Rain"]..": "..rain.." mm");
 			if (WU.now >= "03:00" and WU.now <= "15:59") then -- donne meteo du jour entre 00:00 (ou 3h) et 15:59. permet de garder la météo du soir jusqu'a 3h du matin, sinon change à  minuit
 			fibaro:call(WU.selfId , "setProperty", "ui.lblFcst.value", WU.HtmlOrText(
 				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0").." "..WU.HtmlColor(fcstday1,"ff4500")..": "..WU.HtmlColor(fcst1.." ("..fcst1mm.." mm)","b0c4de"),
-				"["..fcst1Tmax.."° "..fcst1Tmin.."°] | "..fcst1mm.."mm | "..fcst1avewind.."Km/h ("..fcst1avewinddir..")"));
+				fcst1Tmax.."°/"..fcst1Tmin.."° | "..fcst1mm.."mm | "..fcst1avewind.."Km/h ("..fcst1avewinddir..")"));
 			fibaro:call(WU.selfId , "setProperty", "ui.lblIcon.value",WU.IconOrText(fcst1icon,fcstday1..": "..fcst1SmallTxt));
 			fibaro:setGlobal("Meteo_Day", WU.substPercent(WU.translation[WU.language]["Forecast"].." "..fcstday1..": ".." "..fcst1.." ("..fcst1mm.." mm)") );
 			elseif (WU.now >= "16:00" and WU.now <= "23:59") then  -- donne meteo soirée entre 16:00 et 23:59
 			fibaro:call(WU.selfId , "setProperty", "ui.lblFcst.value", WU.HtmlOrText(
 				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0").." "..WU.HtmlColor(fcstday2,"ff4500")..": "..WU.HtmlColor(fcst2.." ("..fcst1mm.." mm)","b0c4de"),
-				"["..fcst1Tmax.."° "..fcst1Tmin.."°] | "..fcst1mm.."mm | "..fcst1avewind.."Km/h ("..fcst1avewinddir..")"));
+				fcst1Tmax.."°/"..fcst1Tmin.."° | "..fcst1mm.."mm | "..fcst1avewind.."Km/h ("..fcst1avewinddir..")"));
 			fibaro:call(WU.selfId , "setProperty", "ui.lblIcon.value",WU.IconOrText(fcst2icon,fcstday2..": "..fcst1SmallTxt));
 			fibaro:setGlobal("Meteo_Day", WU.substPercent(WU.translation[WU.language]["Forecast"].." "..fcstday2..": ".." "..fcst2.." ("..fcst1mm.." mm)") );
 			end
 			-- Meteo of Tomorrow
 			fibaro:call(WU.selfId , "setProperty", "ui.lblFcstTomorrow.value", WU.HtmlOrText(
 				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0").." "..WU.HtmlColor(fcstday3,"ff4500")..": "..WU.HtmlColor(fcst3.." ("..fcst2mm.." mm)","b0c4de"),
-				"["..fcst2Tmax.."° "..fcst2Tmin.."°] | "..fcst2mm.."mm | "..fcst2avewind.."Km/h ("..fcst2avewinddir..")"));
+				fcst2Tmax.."°/"..fcst2Tmin.."° | "..fcst2mm.."mm | "..fcst2avewind.."Km/h ("..fcst2avewinddir..")"));
 			fibaro:call(WU.selfId , "setProperty", "ui.lblIconTomorrow.value",WU.IconOrText(fcst3icon,fcstday3..": "..fcst2SmallTxt));
 			fibaro:setGlobal("Meteo_Tomorrow", WU.substPercent(WU.translation[WU.language]["Forecast"].." "..fcstday3..": ".." "..fcst3.." ("..fcst2mm.." mm)") );
 			-- Meteo in 2 Days
 			fibaro:call(WU.selfId , "setProperty", "ui.lblFcst2Days.value", WU.HtmlOrText(
 				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0").." "..WU.HtmlColor(fcstday5,"ff4500")..": "..WU.HtmlColor(fcst5.." ("..fcst3mm.." mm)","b0c4de"),
-				"["..fcst3Tmax.."° "..fcst3Tmin.."°] | "..fcst3mm.."mm | "..fcst3avewind.."Km/h ("..fcst3avewinddir..")"));
+				fcst3Tmax.."°/"..fcst3Tmin.."° | "..fcst3mm.."mm | "..fcst3avewind.."Km/h ("..fcst3avewinddir..")"));
 			fibaro:call(WU.selfId , "setProperty", "ui.lblIcon2Days.value",WU.IconOrText(fcst5icon,fcstday5..": "..fcst3SmallTxt));
 			fibaro:setGlobal("Meteo_In_2_Days", WU.substPercent(WU.translation[WU.language]["Forecast"].." "..fcstday5..": ".." "..fcst5.." ("..fcst3mm.." mm)") );
 			if WU.notifications then
