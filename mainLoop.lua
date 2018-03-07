@@ -27,7 +27,8 @@
 -- 2015-11-30 - V4.0 - More precision for rain mm (moring/evening) + added feels like T° + optimized display
 -- 2016-07-11 - V4.1 - Added Speech VG, with subst of symbols of day, tomorrow and Day+2 to be more speech compatible (in french only, sorry)
 -- Look for nearest station here: http://www.wunderground.com
--- 2061-10-01 - V4.2 - Removed HTML tags
+-- 2016-10-01 - V4.2 - Removed HTML tags
+-- 2018-03-07 - V4.3 - Mod création des VG si elles n'existent pas. (non testé, code from: https://www.domotique-fibaro.fr/topic/6446-yams-wu-yet-another-meteo-station-wunderground-version/?do=findComment&comment=169513
 
 -------------------------------------------------------------------------------------------
 -- MAIN CODE --
@@ -67,7 +68,7 @@ WU = {};
 	WU.now = os.date("%H:%M");
 	WU.DoNotRecheckBefore = os.time();
 	WU.selfId = fibaro:getSelfId();
-	WU.version = "4.2";
+	WU.version = "4.3";
 
 WU.translation["EN"] = {
 	Push_forecast = "Push forecast",
@@ -239,7 +240,7 @@ WU.notification = function(message, subject, param)
 	end
 end
 WU.createGlobalIfNotExists = function(varName, defaultValue)
-	if (fibaro:getGlobal(varName) == "") then
+	if (fibaro:getGlobal(varName) == nil) then
 		Debug("red", "Global Var: "..varName.." HAS BEEN CREATED");
 		newVar = {};
 		newVar.name = varName;
