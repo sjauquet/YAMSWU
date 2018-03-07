@@ -25,6 +25,7 @@
 -- 2015-11-22 - V3.8 - Finalise mobile version and bug fixing
 -- 2015-11-23 - V3.9 - Added multiple notification options (Lazer way)
 -- 2015-11-30 - V4.0 - More precision for rain mm (moring/evening) + added feels like T° + optimized display
+-- 2016-07-11 - V4.1 - Added Speech VG, with subst of symbols of day, tomorrow and Day+2 to be more speech compatible (in french only, sorry)
 -- Look for nearest station here: http://www.wunderground.com
 
 -------------------------------------------------------------------------------------------
@@ -61,7 +62,7 @@ WU = {};
 	WU.now = os.date("%H:%M");
 	WU.DoNotRecheckBefore = os.time();
 	WU.selfId = fibaro:getSelfId();
-	WU.version = "4.0";
+	WU.version = "4.1";
 
 WU.translation["EN"] = {
 	Push_forecast = "Push forecast",
@@ -73,7 +74,7 @@ WU.translation["EN"] = {
 	Pressure = "Pressure",
 	Wind = "Wind",
 	Rain = "Rain",
-	Forecast = "Forecast",
+	Forecast = "Forecast ",
 	EmailSubject = "Meteo of this",
 	Station = "Station",
 	Fetched = "Fetched",
@@ -113,7 +114,7 @@ WU.translation["SW"] = {
 	Pressure = "Barometer",
 	Wind = "Vind",
 	Rain = "Regn",
-	Forecast = "Prognos",
+	Forecast = "Prognos ",
 	EmailSubject = "Meteo of this",
 	Station = "Station",
 	Fetched = "Hà¤mtat",
@@ -133,7 +134,7 @@ WU.translation["PL"] = {
 	Pressure = "Pressure",
 	Wind = "Wiatr",
 	Rain = "Rain",
-	Forecast = "Forecast",
+	Forecast = "Forecast ",
 	EmailSubject = "Meteo of this",
 	Station = "Station",
 	Fetched = "Fetched",
@@ -153,7 +154,7 @@ WU.translation["NL"] = {
 	Pressure = "Druk",
 	Wind = "Wind",
 	Rain = "Regen",
-	Forecast = "Verwachting",
+	Forecast = "Verwachting ",
 	EmailSubject = "Meteo of this",
 	Station = "Weerstation",
 	Fetched = "Ontvangen",
@@ -173,7 +174,7 @@ WU.translation["DE"] = {
 	Pressure = "Luftdruck",
 	Wind = "Wind",
 	Rain = "Regen",
-	Forecast = "Vorhersage",
+	Forecast = "Vorhersage ",
 	EmailSubject = "Meteo of this",
 	Station = "Station",
 	Fetched = "Abgerufen",
@@ -246,6 +247,33 @@ WU.substPercent = function(doublePercentSymbol)
 		doublePercentSymbol = string.gsub(doublePercentSymbol, "%%.", "%%%%");
 	end
 	return doublePercentSymbol;
+end
+WU.substSpeech = function(substSpeech)
+		substSpeech = string.gsub(substSpeech, "km/h", "kilomètre heure");
+                substSpeech = string.gsub(substSpeech, "ÂºC", "degrés");
+		substSpeech = string.gsub(substSpeech, "°C", "degrés");
+		substSpeech = string.gsub(substSpeech, "%(", "de ");
+		substSpeech = string.gsub(substSpeech, "%)", "");
+		substSpeech = string.gsub(substSpeech, "mm", "milimètres de pluie.");
+		substSpeech = string.gsub(substSpeech, " Vents ", " Vents de provenance ");
+		substSpeech = string.gsub(substSpeech, "/", " à  ");
+		substSpeech = string.gsub(substSpeech, " N ", " Nord ");
+		substSpeech = string.gsub(substSpeech, " S ", " Sud ");
+		substSpeech = string.gsub(substSpeech, " E ", " Est ");
+		substSpeech = string.gsub(substSpeech, " O ", " Ouest ");
+		substSpeech = string.gsub(substSpeech, " NE ", " Nord Est ");
+		substSpeech = string.gsub(substSpeech, " NNE ", " Nord Nord Est ");
+		substSpeech = string.gsub(substSpeech, " ENE ", " Est Nord Est ");
+		substSpeech = string.gsub(substSpeech, " NO ", " Nord Ouest ");
+		substSpeech = string.gsub(substSpeech, " NNO ", " Nord Nord Ouest ");
+		substSpeech = string.gsub(substSpeech, " ONO ", " Ouest Nord Ouest ");
+		substSpeech = string.gsub(substSpeech, " SE ", " Sud Est ");
+		substSpeech = string.gsub(substSpeech, " SSE ", " Sud Sud Est ");
+		substSpeech = string.gsub(substSpeech, " ESE ", " Est Sud Est ");
+		substSpeech = string.gsub(substSpeech, " SO ", " Sud Ouest ");
+		substSpeech = string.gsub(substSpeech, " SSO ", " Sud Sud Ouest ");
+		substSpeech = string.gsub(substSpeech, " OSO ", " Ouest Sud Ouest ");
+	return substSpeech;
 end
 WU.cleanJson = function(jsontocheck,returnIfTrue)
 	if jsontocheck == "-999.00" or jsontocheck == "--" or jsontocheck == json.null then
@@ -323,6 +351,7 @@ decode_error = false;
 WU.checkMobileOrWeb();
 local WGROUND = Net.FHttp("api.wunderground.com",80);
 local response ,status, err = WGROUND:GET("/api/"..WU.APIkey.."/conditions/forecast/lang:"..WU.language.."/q/"..WU.station..":"..locationID..".json");
+--Debug("orange", "api.wunderground.com/api/"..WU.APIkey.."/conditions/forecast/lang:"..WU.language.."/q/"..WU.station..":"..locationID..".json");
 if (tonumber(status) == 200 and tonumber(err)==0) then
 	Debug( "cyan", WU.translation[WU.language]["Fetched"]);
 	if (response ~= nil) then
@@ -404,29 +433,45 @@ if (tonumber(status) == 200 and tonumber(err)==0) then
 			fibaro:call(WU.selfId , "setProperty", "ui.lblWindRain.value", WU.translation[WU.language]["Wind"]..": "..wind.." km/h - "..WU.translation[WU.language]["Rain"]..": "..rain.." mm");
 			if (WU.now >= "03:00" and WU.now <= "15:59") then -- donne meteo du jour entre 00:00 (ou 3h) et 15:59. permet de garder la météo du soir jusqu'a 3h du matin, sinon change à  minuit
 			fibaro:call(WU.selfId , "setProperty", "ui.lblFcst.value", WU.HtmlOrText(
-				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0").." "..WU.HtmlColor(fcstday1,"ff4500")..": "..WU.HtmlColor(fcst1.." ("..fcst1mm.." mm)","b0c4de"),
+				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0")..WU.HtmlColor(fcstday1,"ff4500")..": "..WU.HtmlColor(fcst1.." ("..fcst1mm.." mm)","b0c4de"),
 				fcst1Tmax.."°/"..fcst1Tmin.."° | "..fcst1mm.."mm | "..fcst1avewind.."Km/h ("..fcst1avewinddir..")"));
 			fibaro:call(WU.selfId , "setProperty", "ui.lblIcon.value",WU.IconOrText(fcst1icon,fcstday1..": "..fcst1SmallTxt));
-			fibaro:setGlobal("Meteo_Day", WU.substPercent(WU.translation[WU.language]["Forecast"].." "..fcstday1..": ".." "..fcst1.." ("..fcst1mm.." mm)") );
+			local texte = WU.substPercent(WU.translation[WU.language]["Forecast"]..fcstday1..": ".." "..fcst1.." ("..fcst1mm.." mm)");
+			fibaro:setGlobal("Meteo_Day", texte);
+			local texte = WU.substPercent(WU.translation[WU.language]["Forecast"]..fcstday1..": ".." "..fcst1);
+			texte = WU.substSpeech(texte);
+			fibaro:setGlobal("Meteo_Day_Speech", texte);
 			elseif (WU.now >= "16:00" and WU.now <= "23:59") then  -- donne meteo soirée entre 16:00 et 23:59
 			fibaro:call(WU.selfId , "setProperty", "ui.lblFcst.value", WU.HtmlOrText(
-				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0").." "..WU.HtmlColor(fcstday2,"ff4500")..": "..WU.HtmlColor(fcst2.." ("..fcst1mm.." mm)","b0c4de"),
+				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0")..WU.HtmlColor(fcstday2,"ff4500")..": "..WU.HtmlColor(fcst2.." ("..fcst1mm.." mm)","b0c4de"),
 				fcst1Tmax.."°/"..fcst1Tmin.."° | "..fcst1mm.."mm | "..fcst1avewind.."Km/h ("..fcst1avewinddir..")"));
 			fibaro:call(WU.selfId , "setProperty", "ui.lblIcon.value",WU.IconOrText(fcst2icon,fcstday2..": "..fcst1SmallTxt));
-			fibaro:setGlobal("Meteo_Day", WU.substPercent(WU.translation[WU.language]["Forecast"].." "..fcstday2..": ".." "..fcst2.." ("..fcst1mm.." mm)") );
+			local texte = WU.substPercent(WU.translation[WU.language]["Forecast"]..fcstday2..": ".." "..fcst2.." ("..fcst1mm.." mm)");
+			fibaro:setGlobal("Meteo_Day", texte);
+			local texte = WU.substPercent(WU.translation[WU.language]["Forecast"]..fcstday2..": ".." "..fcst2);
+			texte = WU.substSpeech(texte);
+			fibaro:setGlobal("Meteo_Day_Speech", texte);
 			end
 			-- Meteo of Tomorrow
 			fibaro:call(WU.selfId , "setProperty", "ui.lblFcstTomorrow.value", WU.HtmlOrText(
-				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0").." "..WU.HtmlColor(fcstday3,"ff4500")..": "..WU.HtmlColor(fcst3.." ("..fcst2mm.." mm)","b0c4de"),
+				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0")..WU.HtmlColor(fcstday3,"ff4500")..": "..WU.HtmlColor(fcst3.." ("..fcst2mm.." mm)","b0c4de"),
 				fcst2Tmax.."°/"..fcst2Tmin.."° | "..fcst2mm.."mm | "..fcst2avewind.."Km/h ("..fcst2avewinddir..")"));
 			fibaro:call(WU.selfId , "setProperty", "ui.lblIconTomorrow.value",WU.IconOrText(fcst3icon,fcstday3..": "..fcst2SmallTxt));
-			fibaro:setGlobal("Meteo_Tomorrow", WU.substPercent(WU.translation[WU.language]["Forecast"].." "..fcstday3..": ".." "..fcst3.." ("..fcst2mm.." mm)") );
+			local texte = WU.substPercent(WU.translation[WU.language]["Forecast"]..fcstday3..": ".." "..fcst3.." ("..fcst2mm.." mm)");
+			fibaro:setGlobal("Meteo_Tomorrow", texte);
+			local texte = WU.substPercent(WU.translation[WU.language]["Forecast"]..fcstday3..": ".." "..fcst3);
+			texte = WU.substSpeech(texte);
+			fibaro:setGlobal("Meteo_Tomorrow_Sp", texte);
 			-- Meteo in 2 Days
 			fibaro:call(WU.selfId , "setProperty", "ui.lblFcst2Days.value", WU.HtmlOrText(
-				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0").." "..WU.HtmlColor(fcstday5,"ff4500")..": "..WU.HtmlColor(fcst5.." ("..fcst3mm.." mm)","b0c4de"),
+				WU.HtmlColor(WU.translation[WU.language]["Forecast"],"c0c0c0")..WU.HtmlColor(fcstday5,"ff4500")..": "..WU.HtmlColor(fcst5.." ("..fcst3mm.." mm)","b0c4de"),
 				fcst3Tmax.."°/"..fcst3Tmin.."° | "..fcst3mm.."mm | "..fcst3avewind.."Km/h ("..fcst3avewinddir..")"));
 			fibaro:call(WU.selfId , "setProperty", "ui.lblIcon2Days.value",WU.IconOrText(fcst5icon,fcstday5..": "..fcst3SmallTxt));
-			fibaro:setGlobal("Meteo_In_2_Days", WU.substPercent(WU.translation[WU.language]["Forecast"].." "..fcstday5..": ".." "..fcst5.." ("..fcst3mm.." mm)") );
+			local texte = WU.substPercent(WU.translation[WU.language]["Forecast"]..fcstday5..": ".." "..fcst5.." ("..fcst3mm.." mm)");
+			fibaro:setGlobal("Meteo_In_2_Days", texte);
+			local texte = WU.substPercent(WU.translation[WU.language]["Forecast"]..fcstday5..": ".." "..fcst5);
+			texte = WU.substSpeech(texte);
+			fibaro:setGlobal("Meteo_In_2_Days_Sp", texte);
 			if WU.notifications then
 				if (os.date("%H:%M") == WU.push_fcst1) then
 					WU.notification(fcstday1.." - "..fcst1.." ("..fcst1mm.." mm)" , WU.translation[WU.language]["EmailSubject"].." "..fcstday1 , WU.notificationTypes); -- Send Morning meteo
@@ -475,6 +520,9 @@ if WU.CreateVG then
 	WU.createGlobalIfNotExists("Meteo_Day", "");
 	WU.createGlobalIfNotExists("Meteo_Tomorrow", "");
 	WU.createGlobalIfNotExists("Meteo_In_2_Days", "");
+	WU.createGlobalIfNotExists("Meteo_Day_Speech", "");
+	WU.createGlobalIfNotExists("Meteo_Tomorrow_Sp", "");
+	WU.createGlobalIfNotExists("Meteo_In_2_Days_Sp", "");
 end
 while true do 
 	WU.fetchWU();
